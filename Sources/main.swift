@@ -46,6 +46,60 @@ if CommandLine.arguments.contains("--self-test") {
         }
     }
 
+    let logNow = ISO8601DateFormatter().date(from: "2026-07-05T12:42:00Z")!
+    let logSample = """
+    2026-07-05T12:38:59.000Z warning errorMessage=net::ERR_CONNECTION_TIMED_OUT
+    2026-07-05T12:41:42.000Z warning errorMessage=net::ERR_CONNECTION_TIMED_OUT
+    2026-07-05T12:41:51.000Z warning errorMessage=net::ERR_PROXY_CONNECTION_FAILED
+    2026-07-05T12:41:53.000Z info conversation text without a technical error marker
+    """
+    let recentErrors = CodexNetworkLogScanner.countNetworkErrors(in: logSample, now: logNow, windowSeconds: 180)
+    if recentErrors != 2 {
+        failures.append("Codex日志时间窗口计数错误：预期2，实际\(recentErrors)")
+    }
+    let healthyReport = DiagnosticEngine.previewReport(for: .healthy)
+    let recentFailureDiagnosis = DiagnosticEngine(settings: StoredSettings()).classify(
+        proxy: healthyReport.proxy,
+        clientRunning: true,
+        portListening: true,
+        codexRunning: true,
+        codexUsesProxy: true,
+        recentCodexNetworkErrorCount: 2,
+        endpoints: healthyReport.endpoints
+    )
+    if recentFailureDiagnosis.level != .critical || recentFailureDiagnosis.summary != "Codex近期网络连接异常" {
+        failures.append("Codex连续网络错误未覆盖短请求正常结果")
+    }
+    let challengeReport = DiagnosticEngine.previewReport(for: .webChallengeButReachable)
+    let incorrectlyNormalizedHistory = DiagnosticReport(
+        checkedAt: challengeReport.checkedAt,
+        level: .healthy,
+        summary: "Codex网络链路可达",
+        recommendation: "当前连接正常，无需处理。",
+        proxy: challengeReport.proxy,
+        proxyClientRunning: challengeReport.proxyClientRunning,
+        proxyPortListening: challengeReport.proxyPortListening,
+        codexRunning: challengeReport.codexRunning,
+        codexUsesProxy: challengeReport.codexUsesProxy,
+        launchEnvironmentConfigured: challengeReport.launchEnvironmentConfigured,
+        persistentProxyConfigured: challengeReport.persistentProxyConfigured,
+        recentCodexNetworkErrorCount: 3,
+        codexLogWindowSeconds: 180,
+        endpoints: challengeReport.endpoints
+    )
+    if HistoryStore.normalizeForDisplay(incorrectlyNormalizedHistory).level != .critical {
+        failures.append("Codex近期网络异常被Cloudflare历史兼容逻辑覆盖")
+    }
+    if let currentData = try? encoder.encode(healthyReport),
+       var legacyObject = (try? JSONSerialization.jsonObject(with: currentData)) as? [String: Any] {
+        legacyObject.removeValue(forKey: "recentCodexNetworkErrorCount")
+        legacyObject.removeValue(forKey: "codexLogWindowSeconds")
+        if let legacyData = try? JSONSerialization.data(withJSONObject: legacyObject),
+           (try? decoder.decode(DiagnosticReport.self, from: legacyData)) == nil {
+            failures.append("旧版诊断记录无法兼容解码")
+        }
+    }
+
     let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/CodexProxyEnvironmentHelper")
     if !FileManager.default.isExecutableFile(atPath: helper.path) {
         failures.append("登录级代理Helper缺失或不可执行")

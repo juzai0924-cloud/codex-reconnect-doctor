@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let apiItem = NSMenuItem(title: "API：等待检查", action: nil, keyEquivalent: "")
     private let chatGPTItem = NSMenuItem(title: "ChatGPT：等待检查", action: nil, keyEquivalent: "")
     private let authItem = NSMenuItem(title: "Auth：等待检查", action: nil, keyEquivalent: "")
+    private let codexRequestItem = NSMenuItem(title: "Codex实际请求：等待检查", action: nil, keyEquivalent: "")
     private let checkedAtItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let recoverySeparator = NSMenuItem.separator()
     private let recoveryTitle = NSMenuItem(title: "建议操作", action: nil, keyEquivalent: "")
@@ -54,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(apiItem)
         menu.addItem(chatGPTItem)
         menu.addItem(authItem)
+        menu.addItem(codexRequestItem)
         menu.addItem(checkedAtItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "立即检查", action: #selector(runCheck), keyEquivalent: "r"))
@@ -149,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         apiItem.title = endpointLine(named: "OpenAI API", label: "API", in: report)
         chatGPTItem.title = endpointLine(named: "ChatGPT", label: "ChatGPT", in: report)
         authItem.title = endpointLine(named: "OpenAI Auth", label: "Auth", in: report)
+        codexRequestItem.title = codexRequestStatus(report)
         updateRecoveryActions(report)
         switch report.level {
         case .healthy: setStatusColor(.systemGreen)
@@ -222,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = presentation.style
         alert.messageText = presentation.title
-        alert.informativeText = "检查时间：\(DateFormatter.doctor.string(from: report.checkedAt))\n\n结论：\(report.summary)\n建议：\(report.recommendation)\n\n代理：\(proxyText)\n登录级代理保障：\(forcedProxyText)\nCodex：\(codexText)\n\n网络检测：\n\(endpointText)"
+        alert.informativeText = "检查时间：\(DateFormatter.doctor.string(from: report.checkedAt))\n\n结论：\(report.summary)\n建议：\(report.recommendation)\n\n代理：\(proxyText)\n登录级代理保障：\(forcedProxyText)\nCodex：\(codexText)\n\(codexRequestStatus(report))\n\n网络检测：\n\(endpointText)"
         alert.addButton(withTitle: "知道了")
         alert.runModal()
     }
@@ -436,6 +439,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return String(format: "• %@：HTTP %d，%.2f秒%@", endpoint.name, endpoint.statusCode, endpoint.duration, note)
     }
 
+    private func codexRequestStatus(_ report: DiagnosticReport) -> String {
+        guard let count = report.recentCodexNetworkErrorCount,
+              let seconds = report.codexLogWindowSeconds else {
+            return "Codex实际请求：旧版记录未检测"
+        }
+        let minutes = max(seconds / 60, 1)
+        return count >= 2
+            ? "Codex实际请求：近\(minutes)分钟发生\(count)次网络错误"
+            : "Codex实际请求：近\(minutes)分钟未发现连续网络错误"
+    }
+
     private func updateRecoveryActions(_ report: DiagnosticReport?) {
         recoverySeparator.isHidden = true
         recoveryTitle.isHidden = true
@@ -470,8 +484,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openProxyItem.title = "建议操作：打开代理客户端"
         } else if !report.proxyPortListening {
             openProxyItem.title = "建议操作：打开代理客户端检查HTTP端口"
+        } else if report.summary == "代理通道不可用" || report.summary == "Codex近期网络连接异常" {
+            openProxyItem.title = "建议操作：打开代理客户端检查连接开关"
         } else {
-            openProxyItem.title = "建议操作：打开代理客户端并切换节点"
+            openProxyItem.title = "建议操作：检查代理规则或切换节点"
         }
     }
 

@@ -1,3 +1,5 @@
 build/
+demo-source/
+docs/assets/demo/Codex Reconnect Doctor 演示.mp4
+docs/assets/screenshots/*.png
 .DS_Store
-

@@ -36,6 +36,8 @@ struct DiagnosticReport: Codable {
     let codexUsesProxy: Bool
     let launchEnvironmentConfigured: Bool
     let persistentProxyConfigured: Bool?
+    let recentCodexNetworkErrorCount: Int?
+    let codexLogWindowSeconds: Int?
     let endpoints: [EndpointResult]
 }
 

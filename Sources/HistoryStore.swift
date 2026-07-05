@@ -13,9 +13,7 @@ final class HistoryStore {
     func load() -> [DiagnosticReport] {
         guard let data = try? Data(contentsOf: fileURL),
               let reports = try? JSONDecoder().decode([DiagnosticReport].self, from: data) else { return [] }
-        return reports
-            .map(normalizeLegacyCloudflareResult)
-            .map(normalizeForcedProxyAdvisory)
+        return reports.map(Self.normalizeForDisplay)
     }
 
     func append(_ report: DiagnosticReport) {
@@ -27,8 +25,17 @@ final class HistoryStore {
         }
     }
 
-    private func normalizeLegacyCloudflareResult(_ report: DiagnosticReport) -> DiagnosticReport {
-        guard report.endpoints.contains(where: { $0.cloudflareChallenge }),
+    static func normalizeForDisplay(_ report: DiagnosticReport) -> DiagnosticReport {
+        normalizeForcedProxyAdvisory(
+            normalizeLegacyCloudflareResult(
+                normalizeRecentCodexNetworkErrors(report)
+            )
+        )
+    }
+
+    private static func normalizeLegacyCloudflareResult(_ report: DiagnosticReport) -> DiagnosticReport {
+        guard report.recentCodexNetworkErrorCount == nil,
+              report.endpoints.contains(where: { $0.cloudflareChallenge }),
               report.endpoints.allSatisfy({ $0.reachable }) else { return report }
 
         let level: HealthLevel
@@ -59,11 +66,34 @@ final class HistoryStore {
             codexUsesProxy: report.codexUsesProxy,
             launchEnvironmentConfigured: report.launchEnvironmentConfigured,
             persistentProxyConfigured: report.persistentProxyConfigured,
+            recentCodexNetworkErrorCount: report.recentCodexNetworkErrorCount,
+            codexLogWindowSeconds: report.codexLogWindowSeconds,
             endpoints: report.endpoints
         )
     }
 
-    private func normalizeForcedProxyAdvisory(_ report: DiagnosticReport) -> DiagnosticReport {
+    private static func normalizeRecentCodexNetworkErrors(_ report: DiagnosticReport) -> DiagnosticReport {
+        guard (report.recentCodexNetworkErrorCount ?? 0) >= 2,
+              report.level == .healthy else { return report }
+        return DiagnosticReport(
+            checkedAt: report.checkedAt,
+            level: .critical,
+            summary: "Codex近期网络连接异常",
+            recommendation: "请先确认代理客户端已连接；如已连接，再检查或更换节点。",
+            proxy: report.proxy,
+            proxyClientRunning: report.proxyClientRunning,
+            proxyPortListening: report.proxyPortListening,
+            codexRunning: report.codexRunning,
+            codexUsesProxy: report.codexUsesProxy,
+            launchEnvironmentConfigured: report.launchEnvironmentConfigured,
+            persistentProxyConfigured: report.persistentProxyConfigured,
+            recentCodexNetworkErrorCount: report.recentCodexNetworkErrorCount,
+            codexLogWindowSeconds: report.codexLogWindowSeconds,
+            endpoints: report.endpoints
+        )
+    }
+
+    private static func normalizeForcedProxyAdvisory(_ report: DiagnosticReport) -> DiagnosticReport {
         guard report.summary == "当前已走代理，但登录级强制代理未生效",
               report.codexUsesProxy,
               report.endpoints.allSatisfy({ $0.reachable }) else { return report }
@@ -79,6 +109,8 @@ final class HistoryStore {
             codexUsesProxy: report.codexUsesProxy,
             launchEnvironmentConfigured: report.launchEnvironmentConfigured,
             persistentProxyConfigured: report.persistentProxyConfigured,
+            recentCodexNetworkErrorCount: report.recentCodexNetworkErrorCount,
+            codexLogWindowSeconds: report.codexLogWindowSeconds,
             endpoints: report.endpoints
         )
     }

@@ -4,7 +4,7 @@ enum DiagnosticScenario: CaseIterable {
     case noProxy
     case proxyClientStopped
     case proxyPortClosed
-    case nodeOffline
+    case proxyChannelUnavailable
     case partialServiceFailure
     case highLatency
     case codexNotUsingProxy
@@ -17,7 +17,7 @@ enum DiagnosticScenario: CaseIterable {
         case .noProxy: return "未发现代理配置"
         case .proxyClientStopped: return "代理客户端未启动"
         case .proxyPortClosed: return "HTTP代理端口未监听"
-        case .nodeOffline: return "代理节点无法联网"
+        case .proxyChannelUnavailable: return "代理通道不可用"
         case .partialServiceFailure: return "部分OpenAI服务不可达"
         case .highLatency: return "连接延迟过高"
         case .codexNotUsingProxy: return "Codex未连接代理"
@@ -30,7 +30,7 @@ enum DiagnosticScenario: CaseIterable {
     var expectedLevel: HealthLevel {
         switch self {
         case .noProxy: return .unknown
-        case .proxyClientStopped, .proxyPortClosed, .nodeOffline, .partialServiceFailure: return .critical
+        case .proxyClientStopped, .proxyPortClosed, .proxyChannelUnavailable, .partialServiceFailure: return .critical
         case .highLatency, .codexNotUsingProxy: return .warning
         case .forcedProxyInactive, .webChallengeButReachable, .healthy: return .healthy
         }
@@ -53,6 +53,7 @@ final class DiagnosticEngine {
         let launchEnvironmentConfigured = proxy.map { proxyEnvironmentMatches($0) } ?? false
         let persistentProxyConfigured = proxy.map { persistentProxyMatches($0) } ?? false
         let endpoints = proxy.map { checkEndpoints(proxy: $0) } ?? []
+        let codexLogScan = CodexNetworkLogScanner.scan()
 
         let diagnosis = classify(
             proxy: proxy,
@@ -60,6 +61,7 @@ final class DiagnosticEngine {
             portListening: portListening,
             codexRunning: codexRunning,
             codexUsesProxy: codexUsesProxy,
+            recentCodexNetworkErrorCount: codexLogScan.errorCount,
             endpoints: endpoints
         )
 
@@ -75,6 +77,8 @@ final class DiagnosticEngine {
             codexUsesProxy: codexUsesProxy,
             launchEnvironmentConfigured: launchEnvironmentConfigured,
             persistentProxyConfigured: persistentProxyConfigured,
+            recentCodexNetworkErrorCount: codexLogScan.errorCount,
+            codexLogWindowSeconds: codexLogScan.windowSeconds,
             endpoints: endpoints
         )
     }
@@ -94,6 +98,7 @@ final class DiagnosticEngine {
         var codexUsesProxy = true
         var launchEnvironmentConfigured = true
         var persistentProxyConfigured = true
+        var recentCodexNetworkErrorCount = 0
         var endpoints = reachable
 
         switch scenario {
@@ -112,8 +117,9 @@ final class DiagnosticEngine {
             portListening = false
             codexUsesProxy = false
             endpoints = []
-        case .nodeOffline:
+        case .proxyChannelUnavailable:
             codexUsesProxy = false
+            recentCodexNetworkErrorCount = 3
             endpoints = unreachableEndpoints()
         case .partialServiceFailure:
             endpoints[2] = EndpointResult(name: "OpenAI Auth", url: "https://auth.openai.com", statusCode: 0, duration: 4, cloudflareChallenge: false, error: "模拟连接超时")
@@ -140,6 +146,7 @@ final class DiagnosticEngine {
             portListening: portListening,
             codexRunning: codexRunning,
             codexUsesProxy: codexUsesProxy,
+            recentCodexNetworkErrorCount: recentCodexNetworkErrorCount,
             endpoints: endpoints
         )
         return DiagnosticReport(
@@ -154,6 +161,8 @@ final class DiagnosticEngine {
             codexUsesProxy: codexUsesProxy,
             launchEnvironmentConfigured: launchEnvironmentConfigured,
             persistentProxyConfigured: persistentProxyConfigured,
+            recentCodexNetworkErrorCount: recentCodexNetworkErrorCount,
+            codexLogWindowSeconds: 180,
             endpoints: endpoints
         )
     }
@@ -319,6 +328,7 @@ final class DiagnosticEngine {
         portListening: Bool,
         codexRunning: Bool,
         codexUsesProxy: Bool,
+        recentCodexNetworkErrorCount: Int = 0,
         endpoints: [EndpointResult]
     ) -> (level: HealthLevel, summary: String, recommendation: String) {
         guard let proxy else {
@@ -330,8 +340,19 @@ final class DiagnosticEngine {
         guard portListening else {
             return (.critical, "代理端口 \(proxy.host):\(proxy.port) 未监听", "请检查代理客户端显示的HTTP端口，或重新自动检测。")
         }
+        if recentCodexNetworkErrorCount >= 2 {
+            return (
+                .critical,
+                "Codex近期网络连接异常",
+                "请先确认代理客户端已连接；如已连接，再检查或更换节点。"
+            )
+        }
         if endpoints.isEmpty || endpoints.allSatisfy({ !$0.reachable }) {
-            return (.critical, "代理节点无法完成外部连接", "请在代理客户端中更换节点后重新检测。")
+            return (
+                .critical,
+                "代理通道不可用",
+                "请先确认代理客户端已连接；如已连接，再更换节点后重新检测。"
+            )
         }
         if endpoints.contains(where: { !$0.reachable }) {
             return (.critical, "部分OpenAI服务不可达", "请检查当前节点和代理规则，确保OpenAI相关域名均走代理。")
