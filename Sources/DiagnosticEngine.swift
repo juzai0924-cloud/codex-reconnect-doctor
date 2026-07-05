@@ -1,5 +1,42 @@
 import Foundation
 
+enum DiagnosticScenario: CaseIterable {
+    case noProxy
+    case proxyClientStopped
+    case proxyPortClosed
+    case nodeOffline
+    case partialServiceFailure
+    case highLatency
+    case codexNotUsingProxy
+    case forcedProxyInactive
+    case webChallengeButReachable
+    case healthy
+
+    var title: String {
+        switch self {
+        case .noProxy: return "未发现代理配置"
+        case .proxyClientStopped: return "代理客户端未启动"
+        case .proxyPortClosed: return "HTTP代理端口未监听"
+        case .nodeOffline: return "代理节点无法联网"
+        case .partialServiceFailure: return "部分OpenAI服务不可达"
+        case .highLatency: return "连接延迟过高"
+        case .codexNotUsingProxy: return "Codex未连接代理"
+        case .forcedProxyInactive: return "登录级强制代理未生效"
+        case .webChallengeButReachable: return "网页返回403但网络可达"
+        case .healthy: return "全部正常"
+        }
+    }
+
+    var expectedLevel: HealthLevel {
+        switch self {
+        case .noProxy: return .unknown
+        case .proxyClientStopped, .proxyPortClosed, .nodeOffline, .partialServiceFailure: return .critical
+        case .highLatency, .codexNotUsingProxy: return .warning
+        case .forcedProxyInactive, .webChallengeButReachable, .healthy: return .healthy
+        }
+    }
+}
+
 final class DiagnosticEngine {
     private let settings: StoredSettings
 
@@ -14,6 +51,7 @@ final class DiagnosticEngine {
         let codexUsesProxy = proxy.map { codexConnectedToProxy(port: $0.port) } ?? false
         let codexRunning = isCodexRunning() || codexUsesProxy
         let launchEnvironmentConfigured = proxy.map { proxyEnvironmentMatches($0) } ?? false
+        let persistentProxyConfigured = proxy.map { persistentProxyMatches($0) } ?? false
         let endpoints = proxy.map { checkEndpoints(proxy: $0) } ?? []
 
         let diagnosis = classify(
@@ -36,8 +74,96 @@ final class DiagnosticEngine {
             codexRunning: codexRunning,
             codexUsesProxy: codexUsesProxy,
             launchEnvironmentConfigured: launchEnvironmentConfigured,
+            persistentProxyConfigured: persistentProxyConfigured,
             endpoints: endpoints
         )
+    }
+
+    static func previewReport(for scenario: DiagnosticScenario) -> DiagnosticReport {
+        let proxy = ProxyConfiguration(host: "127.0.0.1", port: 8890, source: "测试数据")
+        let reachable = [
+            EndpointResult(name: "OpenAI API", url: "https://api.openai.com/v1/models", statusCode: 401, duration: 0.42, cloudflareChallenge: false, error: nil),
+            EndpointResult(name: "ChatGPT", url: "https://chatgpt.com", statusCode: 200, duration: 0.36, cloudflareChallenge: false, error: nil),
+            EndpointResult(name: "OpenAI Auth", url: "https://auth.openai.com", statusCode: 200, duration: 0.31, cloudflareChallenge: false, error: nil)
+        ]
+
+        var selectedProxy: ProxyConfiguration? = proxy
+        var clientRunning = true
+        var portListening = true
+        let codexRunning = true
+        var codexUsesProxy = true
+        var launchEnvironmentConfigured = true
+        var persistentProxyConfigured = true
+        var endpoints = reachable
+
+        switch scenario {
+        case .noProxy:
+            selectedProxy = nil
+            clientRunning = false
+            portListening = false
+            codexUsesProxy = false
+            endpoints = []
+        case .proxyClientStopped:
+            clientRunning = false
+            portListening = false
+            codexUsesProxy = false
+            endpoints = []
+        case .proxyPortClosed:
+            portListening = false
+            codexUsesProxy = false
+            endpoints = []
+        case .nodeOffline:
+            codexUsesProxy = false
+            endpoints = unreachableEndpoints()
+        case .partialServiceFailure:
+            endpoints[2] = EndpointResult(name: "OpenAI Auth", url: "https://auth.openai.com", statusCode: 0, duration: 4, cloudflareChallenge: false, error: "模拟连接超时")
+        case .highLatency:
+            endpoints = reachable.map {
+                EndpointResult(name: $0.name, url: $0.url, statusCode: $0.statusCode, duration: 4.2, cloudflareChallenge: false, error: nil)
+            }
+        case .codexNotUsingProxy:
+            codexUsesProxy = false
+        case .forcedProxyInactive:
+            launchEnvironmentConfigured = false
+            persistentProxyConfigured = false
+        case .webChallengeButReachable:
+            endpoints[1] = EndpointResult(name: "ChatGPT", url: "https://chatgpt.com", statusCode: 403, duration: 0.36, cloudflareChallenge: true, error: nil)
+            endpoints[2] = EndpointResult(name: "OpenAI Auth", url: "https://auth.openai.com", statusCode: 403, duration: 0.31, cloudflareChallenge: true, error: nil)
+        case .healthy:
+            break
+        }
+
+        let engine = DiagnosticEngine(settings: StoredSettings())
+        let diagnosis = engine.classify(
+            proxy: selectedProxy,
+            clientRunning: clientRunning,
+            portListening: portListening,
+            codexRunning: codexRunning,
+            codexUsesProxy: codexUsesProxy,
+            endpoints: endpoints
+        )
+        return DiagnosticReport(
+            checkedAt: Date(),
+            level: diagnosis.level,
+            summary: diagnosis.summary,
+            recommendation: diagnosis.recommendation,
+            proxy: selectedProxy,
+            proxyClientRunning: clientRunning,
+            proxyPortListening: portListening,
+            codexRunning: codexRunning,
+            codexUsesProxy: codexUsesProxy,
+            launchEnvironmentConfigured: launchEnvironmentConfigured,
+            persistentProxyConfigured: persistentProxyConfigured,
+            endpoints: endpoints
+        )
+    }
+
+    private static func unreachableEndpoints() -> [EndpointResult] {
+        [
+            EndpointResult(name: "OpenAI API", url: "https://api.openai.com/v1/models", statusCode: 0, duration: 4, cloudflareChallenge: false, error: "模拟连接超时"),
+            EndpointResult(name: "ChatGPT", url: "https://chatgpt.com", statusCode: 0, duration: 4, cloudflareChallenge: false, error: "模拟连接超时"),
+            EndpointResult(name: "OpenAI Auth", url: "https://auth.openai.com", statusCode: 0, duration: 4, cloudflareChallenge: false, error: "模拟连接超时")
+        ]
     }
 
     private func detectProxy() -> ProxyConfiguration? {
@@ -53,7 +179,11 @@ final class DiagnosticEngine {
                 }
             }
         }
-        return ProxyConfiguration(host: settings.proxyHost, port: settings.proxyPort, source: "手动设置")
+        return ProxyConfiguration(
+            host: settings.proxyHost,
+            port: settings.proxyPort,
+            source: settings.autoDetectProxy ? "备用设置" : "手动设置"
+        )
     }
 
     private func detectSystemHTTPProxy() -> ProxyConfiguration? {
@@ -62,8 +192,9 @@ final class DiagnosticEngine {
         let host = capture(#"HTTPProxy\s*:\s*([^\s]+)"#, in: result.output)
         let portText = capture(#"HTTPPort\s*:\s*(\d+)"#, in: result.output)
         let enabled = capture(#"HTTPEnable\s*:\s*(\d+)"#, in: result.output)
-        guard enabled == "1", let host, let portText, let port = Int(portText) else { return nil }
-        return ProxyConfiguration(host: host, port: port, source: "macOS系统代理")
+        guard enabled == "1", let host, let portText, let port = Int(portText),
+              let validated = try? ProxyValidator.validate(host: host, port: port) else { return nil }
+        return ProxyConfiguration(host: validated.host, port: validated.port, source: "macOS系统代理")
     }
 
     private func detectLaunchEnvironmentProxy() -> ProxyConfiguration? {
@@ -82,8 +213,9 @@ final class DiagnosticEngine {
         let normalized = value.contains("://") ? value : "http://\(value)"
         guard let components = URLComponents(string: normalized),
               let host = components.host,
-              let port = components.port else { return nil }
-        return (host, port)
+              let port = components.port,
+              let validated = try? ProxyValidator.validate(host: host, port: port) else { return nil }
+        return validated
     }
 
     private func isProxyClientRunning() -> Bool {
@@ -112,11 +244,28 @@ final class DiagnosticEngine {
 
     private func proxyEnvironmentMatches(_ proxy: ProxyConfiguration) -> Bool {
         let expected = "\(proxy.host):\(proxy.port)"
-        for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"] {
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] {
             let value = Shell.run("/bin/launchctl", ["getenv", key]).output
-            if value.contains(expected) { return true }
+            if !value.contains(expected) { return false }
         }
-        return false
+        return true
+    }
+
+    private func persistentProxyMatches(_ proxy: ProxyConfiguration) -> Bool {
+        let file = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/com.local.codex-proxy-env.plist")
+        guard let data = try? Data(contentsOf: file),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+              let dictionary = plist as? [String: Any],
+              dictionary["Label"] as? String == "com.local.codex-proxy-env",
+              dictionary["RunAtLoad"] as? Bool == true,
+              let arguments = dictionary["ProgramArguments"] as? [String],
+              arguments.count == 3,
+              arguments[0].hasSuffix("/Contents/Helpers/CodexProxyEnvironmentHelper"),
+              let port = Int(arguments[2]),
+              let configured = try? ProxyValidator.validate(host: arguments[1], port: port),
+              let expected = try? ProxyValidator.validate(host: proxy.host, port: proxy.port) else { return false }
+        return configured.host == expected.host && configured.port == expected.port
     }
 
     private func checkEndpoints(proxy: ProxyConfiguration) -> [EndpointResult] {
@@ -144,7 +293,9 @@ final class DiagnosticEngine {
     }
 
     private func checkEndpoint(name: String, url: String, proxy: ProxyConfiguration) -> EndpointResult {
-        let proxyURL = "http://\(proxy.host):\(proxy.port)"
+        guard let proxyURL = try? ProxyValidator.proxyURL(host: proxy.host, port: proxy.port) else {
+            return EndpointResult(name: name, url: url, statusCode: 0, duration: 0, cloudflareChallenge: false, error: "无效的本地代理配置")
+        }
         let result = Shell.run("/usr/bin/curl", [
             "--silent", "--show-error", "--location", "--max-redirs", "2",
             "--connect-timeout", "4", "--max-time", "9",
@@ -162,7 +313,7 @@ final class DiagnosticEngine {
         return EndpointResult(name: name, url: url, statusCode: code, duration: duration, cloudflareChallenge: challenge, error: error?.isEmpty == true ? nil : error)
     }
 
-    private func classify(
+    func classify(
         proxy: ProxyConfiguration?,
         clientRunning: Bool,
         portListening: Bool,
@@ -182,9 +333,6 @@ final class DiagnosticEngine {
         if endpoints.isEmpty || endpoints.allSatisfy({ !$0.reachable }) {
             return (.critical, "代理节点无法完成外部连接", "请在代理客户端中更换节点后重新检测。")
         }
-        if endpoints.contains(where: { $0.cloudflareChallenge }) {
-            return (.critical, "ChatGPT/Auth链路受到Cloudflare挑战", "本地代理正常，但当前出口不适合Codex会话。请更换节点后重测。")
-        }
         if endpoints.contains(where: { !$0.reachable }) {
             return (.critical, "部分OpenAI服务不可达", "请检查当前节点和代理规则，确保OpenAI相关域名均走代理。")
         }
@@ -193,6 +341,9 @@ final class DiagnosticEngine {
         }
         if codexRunning && !codexUsesProxy {
             return (.warning, "服务可达，但未确认Codex连接到代理", "可以按代理方式重启Codex，再重新检测。")
+        }
+        if endpoints.contains(where: { $0.cloudflareChallenge }) {
+            return (.healthy, "Codex网络链路可达", "当前连接正常，无需处理。")
         }
         return (.healthy, "Codex网络链路正常", "当前无需处理。")
     }

@@ -35,6 +35,7 @@ struct DiagnosticReport: Codable {
     let codexRunning: Bool
     let codexUsesProxy: Bool
     let launchEnvironmentConfigured: Bool
+    let persistentProxyConfigured: Bool?
     let endpoints: [EndpointResult]
 }
 
@@ -44,4 +45,3 @@ struct StoredSettings: Codable {
     var autoDetectProxy: Bool = true
     var checkIntervalMinutes: Int = 15
 }
-
