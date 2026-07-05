@@ -16,7 +16,7 @@ flowchart LR
 
 ## 演示视频
 
-[▶️ 查看 Codex Reconnect Doctor MP4 演示（约80秒）](docs/assets/demo/codex-reconnect-doctor-demo.mp4)
+[▶️ 在线播放 Codex Reconnect Doctor 演示（约80秒）](https://juzai0924-cloud.github.io/codex-reconnect-doctor/)
 
 ## 当前能力
 

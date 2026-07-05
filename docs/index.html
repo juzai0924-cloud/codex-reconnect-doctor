@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Codex Reconnect Doctor —— macOS 菜单栏网络链路诊断工具演示。">
+  <meta property="og:title" content="Codex Reconnect Doctor">
+  <meta property="og:description" content="定位 Codex reconnecting 背后的本地代理、服务链路和实际请求异常。">
+  <meta property="og:image" content="assets/demo/poster.jpg">
+  <title>Codex Reconnect Doctor · 在线演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --surface: rgba(255, 255, 255, 0.92);
+      --text: #182033;
+      --muted: #657087;
+      --line: #dfe4ed;
+      --accent: #1769e0;
+      --accent-dark: #0e54bd;
+      --green: #20b965;
+      --red: #eb3d4d;
+      --shadow: 0 18px 60px rgba(24, 32, 51, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(23, 105, 224, 0.12), transparent 30rem),
+        radial-gradient(circle at 88% 18%, rgba(32, 185, 101, 0.08), transparent 24rem),
+        var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 72px 0 48px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(32, 185, 101, 0.12);
+    }
+
+    h1 {
+      max-width: 850px;
+      margin: 0;
+      font-size: clamp(40px, 7vw, 72px);
+      line-height: 1.02;
+      letter-spacing: -0.045em;
+    }
+
+    .intro {
+      max-width: 760px;
+      margin: 24px 0 30px;
+      color: var(--muted);
+      font-size: clamp(17px, 2.2vw, 21px);
+      line-height: 1.7;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 38px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 19px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: var(--surface);
+      font-weight: 650;
+      text-decoration: none;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    .button:hover { transform: translateY(-1px); border-color: #b9c2d2; }
+    .button.primary { color: white; border-color: var(--accent); background: var(--accent); }
+    .button.primary:hover { background: var(--accent-dark); }
+
+    .video-shell {
+      overflow: hidden;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      border-radius: 14px;
+      background: #0b1020;
+      aspect-ratio: 83 / 54;
+    }
+
+    .caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 8px 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .feature {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+
+    .feature strong { display: block; margin-bottom: 8px; font-size: 17px; }
+    .feature p { margin: 0; color: var(--muted); line-height: 1.65; }
+    .signal { color: var(--red); }
+
+    footer {
+      padding: 34px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @media (max-width: 760px) {
+      main { width: min(100% - 24px, 1120px); padding-top: 42px; }
+      .features { grid-template-columns: 1fr; }
+      .caption { flex-direction: column; gap: 5px; }
+      .actions .button { flex: 1 1 100%; }
+      .video-shell { padding: 6px; border-radius: 16px; }
+      video { border-radius: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow"><span class="status-dot" aria-hidden="true"></span>macOS 菜单栏工具 · Swift</div>
+    <h1>Codex Reconnect Doctor</h1>
+    <p class="intro">将本地代理、OpenAI 服务链路、Codex 进程连接和近期网络错误收敛为一次可解释的本地诊断。</p>
+
+    <div class="actions">
+      <a class="button primary" href="#demo">▶ 播放在线演示</a>
+      <a class="button" href="https://github.com/juzai0924-cloud/codex-reconnect-doctor">查看 GitHub 源码</a>
+    </div>
+
+    <section class="video-shell" id="demo" aria-label="产品演示视频">
+      <video controls playsinline preload="metadata" poster="assets/demo/poster.jpg">
+        <source src="assets/demo/codex-reconnect-doctor-demo.mp4" type="video/mp4">
+        当前浏览器不支持 MP4 视频播放。
+      </video>
+      <div class="caption">
+        <span>80 秒：模拟断开代理 → 发现 Codex 超时 → 恢复连接</span>
+        <span>H.264 · 1080p · 2.9 MB</span>
+      </div>
+    </section>
+
+    <section class="features" aria-label="核心能力">
+      <article class="feature">
+        <strong>多层诊断</strong>
+        <p>区分代理进程、本地端口、服务可达性和 Codex 实际请求。</p>
+      </article>
+      <article class="feature">
+        <strong><span class="signal">●</span> 可解释结论</strong>
+        <p>红黄绿状态配合明确原因和处理建议，避免只给出“网络异常”。</p>
+      </article>
+      <article class="feature">
+        <strong>本地与隐私优先</strong>
+        <p>诊断在本机完成，只记录技术错误次数，不上传诊断或对话内容。</p>
+      </article>
+    </section>
+
+    <footer>MIT License · Built as an independent AI Coding project</footer>
+  </main>
+</body>
+</html>
